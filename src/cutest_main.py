@@ -7,7 +7,7 @@
 #   @Create date:   2018-07-01 12:31:00
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2018-11-20 15:26:04
+#   @Last Modified time:    2019-02-03 12:15:16
 
 #   @Description:
 #   @Example:
@@ -30,7 +30,7 @@ import json
 def run(problem, optim, demo):
     # try:
         print(optim.getName())
-        for _ in range(100):
+        for _ in range(300):
             optim.step(save=True, trace=demo.doDrawTrace())
             if optim.terminationCondition(mode='first_order', tol =1e-6):
                 break

@@ -7,7 +7,7 @@
 #   @Create date:   2018-10-05 14:26:04
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2018-11-20 15:30:00
+#   @Last Modified time:    2019-02-03 12:19:35
 
 #   @Description:
 #   @Example:
@@ -124,9 +124,10 @@ class Demo(object):
         self.closePlot()
 
     def savePlot(self):
-        self.fig_performance.savefig(self.problem.getName()+'-performance.eps', bbox_inches='tight', format='eps', dpi=1000)
+        save_format = config['DEMO']['SAVE_FORMAT']
+        self.fig_performance.savefig(self.problem.getName()+'-performance.'+save_format, bbox_inches='tight', format=save_format, dpi=1000)
         if self.draw_trace:
-            self.fig_trace.savefig(self.problem.getName()+'-trace.eps', bbox_inches='tight', format='eps', dpi=1000)
+            self.fig_trace.savefig(self.problem.getName()+'-trace.'+save_format, bbox_inches='tight', format=save_format, dpi=1000)
         self.closePlot()
 
     def closePlot(self):

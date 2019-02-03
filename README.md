@@ -74,8 +74,8 @@ run(problem, optim, demo)
 
 demo.showPlot()
 ```
-![f](https://bytebucket.org/xih314/mreleven/raw/3826298c24e2eec517aafbdc6d0b381735ff0b6f/src/demos/ROSENBR-performance.png)
-![f](https://bytebucket.org/xih314/mreleven/raw/3826298c24e2eec517aafbdc6d0b381735ff0b6f/src/demos/ROSENBR-trace.png)
+![f](./images/ROSENBR-performance.png)
+![f](./images/ROSENBR-trace.png)
 
 ## List of Main Modules
 ### Gradient Based Solver, *optimizer.GD*
