@@ -7,7 +7,7 @@
 #   @Create date:   2018-10-05 14:26:04
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2019-02-03 12:19:35
+#   @Last Modified time:    2019-02-03 17:35:12
 
 #   @Description:
 #   @Example:
@@ -106,6 +106,7 @@ class Demo(object):
             self.ax2.plot(res[0].astype(int), res[2], label=optim.getName()+','+str(len(res[0]))+' iters')
         else:
             self.ax2.semilogy(res[0].astype(int), res[2], label=optim.getName()+','+str(len(res[0]))+' iters')
+            # self.ax2.semilogy(res[0].astype(int), res[2])
         self.ax2.set_ylabel(r'$||\nabla f(x)||$')
         # self.ax2.legend(loc='best')
         self.ax2.set_xlabel(r'iters')

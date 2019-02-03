@@ -7,7 +7,7 @@
 #   @Create date:   2018-09-24 09:09:53
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2019-02-03 16:44:21
+#   @Last Modified time:    2019-02-03 17:28:41
 
 #   @Description:
 #   @Example:
@@ -686,10 +686,14 @@ class SubRoutine(object):
             max_iters = int(config['GLOBAL']['MAX_SUBROUTINE_ITERS'])
             lmd_U = lip_hessian + (sigma_U * LA.norm(b)) ** 0.5
 
+            # print('xxxxx')
+
             for iter_ in range(max_iters):
                 # print(sigma_L, sigma_U, lmd_L, lmd_U)
-                lmd_c = np.random.uniform(lmd_L, 0.01* (lmd_U + lmd_L))
+                lmd_c = np.random.uniform(lmd_L, min(lmd_L + 0.01*(lmd_U+lmd_L), lmd_U))
                 d, psd_matrix = self.cgPhaseOne(x, b, sigma_L, sigma_U, lmd_c)
+
+                # print(lmd_L, lmd_c, lmd_U)
 
                 if not psd_matrix:
                     lmd_L = max(lmd_L, lmd_c)
@@ -705,6 +709,7 @@ class SubRoutine(object):
                     return d, lmd_c
                 else:
                     lmd_U = min(lmd_c, lmd_U)
+
 
                 if abs(lmd_U - lmd_L) <= eps:
                     lmd_c = (lmd_U + lmd_L) * 0.5
@@ -742,9 +747,8 @@ class SubRoutine(object):
                 pAp = p.dot(Ap)
 
                 if pAp <= -eps or (abs(pAp) <= eps and LA.norm(p) >= eps):
-                    d = 0
                     psd_matrix = False
-                    return d, psd_matrix
+                    return 0, psd_matrix
 
                 alpha = rs_old / pAp
 
@@ -768,7 +772,7 @@ class SubRoutine(object):
             return cg_x, psd_matrix
 
         def cgPhaseTwo(self, x, b, sigma_L, sigma_U, lmd_c, cg_x):
-            print('start phase two...')
+            # print('start phase two...')
             cg_max_iters = int(config['IRSNT']['CG_MAX_ITERS'])
             max_iters = min(cg_max_iters, b.size * 2)
             tol = float(config['IRSNT']['CG_STOP_TOL'])
@@ -815,10 +819,10 @@ class SubRoutine(object):
             eps = float(config['IRSNT']['BINARY_SEARCH_TOL'])
             # print('start binary search ...')
             while True:
-                lmd_c = np.random.uniform(lmd_L, 0.5*(lmd_L + lmd_U))
+                lmd_c = np.random.uniform(lmd_L, min(lmd_L+0.5*(lmd_L + lmd_U), lmd_U))
                 d, _ = self.cgPhaseOne(x, b, sigma_L, sigma_U, lmd_c)
                 normd = LA.norm(d)
-
+                # print(sigma_L, lmd_c/normd, sigma_U)
                 if sigma_L * normd - eps < lmd_c < sigma_U *normd + eps:
                     return d, lmd_c
                 elif lmd_c > sigma_U * normd + eps:

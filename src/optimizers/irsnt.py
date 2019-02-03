@@ -7,7 +7,7 @@
 #   @Create date:   2018-09-23 21:50:20
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2019-02-03 16:42:28
+#   @Last Modified time:    2019-02-03 16:57:59
 
 #   @Description:
 #   @Example:
@@ -94,7 +94,7 @@ class Irsnt(Optimizer):
     def subModelReduction(self, p, grad, lmd):
         tmp = grad.dot(p) + 0.5 * p.dot(self.problem.getHv(self.x, p)) + 0.5 * lmd * LA.norm(p) ** 2
         self.counter.incrementHessVCount()
-        assert tmp <= 0, 'irsnt submodel does not reduce.!!'
+        # assert tmp <= 0, 'irsnt submodel does not reduce.!!'
 
         return -tmp
 

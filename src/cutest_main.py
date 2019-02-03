@@ -7,7 +7,7 @@
 #   @Create date:   2018-07-01 12:31:00
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2019-02-03 16:39:23
+#   @Last Modified time:    2019-02-03 17:37:05
 
 #   @Description:
 #   @Example:
@@ -28,7 +28,7 @@ import os
 import json
 
 def run(problem, optim, demo):
-    # try:
+    try:
         print(optim.getName())
         for _ in range(300):
             optim.step(save=True, trace=demo.doDrawTrace())
@@ -39,8 +39,8 @@ def run(problem, optim, demo):
         optim.counter.printCounter(optim.counter)
 
         demo.drawPerformancePlot(optim, log_plot=True)
-    # except:
-        # print('RUN failed: %s'%optim.getName())
+    except:
+        print('RUN failed: %s'%optim.getName())
 
 def main(func_name='ROSENBR'):
 
@@ -62,25 +62,25 @@ def main(func_name='ROSENBR'):
 
     demo = Demo(problem, draw_trace = draw_trace)
 
-    for linesearch in ['amijo', 'strong_wolfe']:
-        problem.setInitialPoint()
-        optim = optimizers.GD(problem, lr=False, momentum=0.99, linesearch=linesearch)
-        run(problem, optim, demo)
+    # for linesearch in ['amijo', 'strong_wolfe']:
+    #     problem.setInitialPoint()
+    #     optim = optimizers.GD(problem, lr=False, momentum=0.99, linesearch=linesearch)
+    #     run(problem, optim, demo)
 
-    for mode in ['exact', 'cg']:
-        problem.setInitialPoint()
-        optim = optimizers.Newton(problem, lr=False, damping='min_eig', mode=mode, linesearch='strong_wolfe')
-        run(problem, optim, demo)
+    # for mode in ['exact', 'cg']:
+    #     problem.setInitialPoint()
+    #     optim = optimizers.Newton(problem, lr=False, damping='min_eig', mode=mode, linesearch='strong_wolfe')
+    #     run(problem, optim, demo)
 
-    for mode in ['exact', 'krylov', 'cauchy']:
-        problem.setInitialPoint()
-        optim = optimizers.Cubic(problem, lr=False, mode=mode, adaptive=True)
-        run(problem, optim, demo)
+    # for mode in ['exact', 'krylov', 'cauchy']:
+    #     problem.setInitialPoint()
+    #     optim = optimizers.Cubic(problem, lr=False, mode=mode, adaptive=True)
+    #     run(problem, optim, demo)
 
-    for mode in ['exact', 'cauchy']:
-        problem.setInitialPoint()
-        optim = optimizers.TrustRegion(problem, mode=mode)
-        run(problem, optim, demo)
+    # for mode in ['exact', 'cauchy']:
+    #     problem.setInitialPoint()
+    #     optim = optimizers.TrustRegion(problem, mode=mode)
+    #     run(problem, optim, demo)
 
     problem.setInitialPoint()
     optim = optimizers.Irsnt(problem)
@@ -92,11 +92,12 @@ def main(func_name='ROSENBR'):
     logging.info('Finished')
 
 if __name__ == '__main__':
-    func_name = 'ROSENBR'  # dim = 2
+    # func_name = 'ROSENBR'  # dim = 2
     # func_name = 'AKIVA'  # dim = 2
     # func_name = 'ARGTRIGLS'  # dim = 10
     # func_name = '3PK'  # dim = 30
     # func_name = 'BQPGASIM' # dim = 50
+    func_name = 'BIGGS6' # dim = 50
 
     main(func_name)
 
