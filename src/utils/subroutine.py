@@ -7,7 +7,7 @@
 #   @Create date:   2018-09-24 09:09:53
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2018-11-20 15:17:28
+#   @Last Modified time:    2019-02-03 16:44:21
 
 #   @Description:
 #   @Example:
@@ -680,174 +680,320 @@ class SubRoutine(object):
             x = np.random.standard_normal(dims)
             return x / LA.norm(x)
 
-        def adaNT_solver(self, A, b, tau):
-
-            eps_exact = 1e-8
-            b += min(LA.norm(b), 1e-5) * self.getRandVecOnBall(len(A))
-            # b += 1e-5 * self.getRandVecOnBall(len(A))
-            s = b
-            max_iters = 200
-            do_order_two_update = False # TODO: check why second order update not working
-
-            gl = min([A[i, i] - np.sum(np.abs(A[i, :])) + np.abs(A[i, i]) for i in range(len(A))])
-            gu = max([A[i, i] + np.sum(np.abs(A[i, :])) - np.abs(A[i, i]) for i in range(len(A))])
-
-            A_ii_min = min(np.diagonal(A))
-
-            lmd_lower = max(0, -A_ii_min, gl)
-            lmd_upper = max(gu, lmd_lower + eps_exact)
-
-            lmd_c = np.random.uniform(lmd_lower, lmd_upper)
-
-            if self.mode == 'tr':
-                is_pd = isPDMatrix(A)
-                if is_pd:
-                    L = LA.cholesky(A) # lower triangular factor
-                    self.counter.incrementCholeskyDecompCount()
-
-                    w = SLA.solve_triangular(L, b, lower=True)
-                    self.counter.incrementCholeskyLinearSolverCount()
-
-                    s = SLA.solve_triangular(L.T, w, lower=False)
-                    self.counter.incrementCholeskyLinearSolverCount()
-
-                    sn = LA.norm(s)
-
-                    if sn <= tau:
-                        return s, 0
+        def adaNTSolver(self, x, b, sigma_L, sigma_U, lmd_U = float('inf'), lmd_L = 0):
+            eps = float(config['IRSNT']['HARDCASE_TOL'])
+            lip_hessian = float(config['IRSNT']['LIP_HESSIAN'])
+            max_iters = int(config['GLOBAL']['MAX_SUBROUTINE_ITERS'])
+            lmd_U = lip_hessian + (sigma_U * LA.norm(b)) ** 0.5
 
             for iter_ in range(max_iters):
+                # print(sigma_L, sigma_U, lmd_L, lmd_U)
+                lmd_c = np.random.uniform(lmd_L, 0.01* (lmd_U + lmd_L))
+                d, psd_matrix = self.cgPhaseOne(x, b, sigma_L, sigma_U, lmd_c)
 
-                # print(iter, lmd_lower, lmd_c,  lmd_upper)
+                if not psd_matrix:
+                    lmd_L = max(lmd_L, lmd_c)
+                    continue
 
-                lmd_plus_in_N = False
-                lmd_in_N = False
+                normd = LA.norm(d)
+                # print(iter_, lmd_L, lmd_U, sigma_L, lmd_c/normd, sigma_U)
 
-                B = A + lmd_c * np.eye(self.problem.getSize())
+                if sigma_L * normd < lmd_c < sigma_U * normd:
+                    return d, lmd_c
+                elif lmd_c < sigma_L * normd:
+                    d, lmd_c = self.binarySearch(x, b, sigma_L, sigma_U, lmd_L, lmd_U)
+                    return d, lmd_c
+                else:
+                    lmd_U = min(lmd_c, lmd_U)
 
-                try: # if this succeeds, then lmd_c is in L or G
-                    L = LA.cholesky(B) # lower triangular factor
-                    self.counter.incrementCholeskyDecompCount()
+                if abs(lmd_U - lmd_L) <= eps:
+                    lmd_c = (lmd_U + lmd_L) * 0.5
+                    d_plus = self.cgPhaseTwo(x, b, sigma_L, sigma_U, lmd_c, np.zeros(b.shape))
+                    # print(d_plus, LA.norm(d_plus)* sigma_U, lmd_c)
+                    if LA.norm(d_plus) * sigma_U > lmd_c:
+                        return d_plus, lmd_c
+                    else:
+                        d = self.cgPhaseTwo(x, b, sigma_L, sigma_U, lmd_c, np.ones(b.shape))
+                        # print(d, d-d_plus)
+                        _, gamma = self.findQuadRoot(LA.norm(d - d_plus) ** 2, 2 * (d - d_plus).dot(d_plus), LA.norm(d_plus) ** 2 - lmd_c ** 2 / ((sigma_U+sigma_L)*0.5) ** 2)
+                        # A = self.problem.getHessian(x)
+                        # a = leftMost(A)
+                        # print('xxxxxxx', A, a, lmd_c, (d - d_plus).dot(d_plus), self.problem.getHv(x, d-d_plus) - lmd_c*(d-d_plus))
+                        return d_plus - np.sign(b.dot(d-d_plus)) * gamma * (d - d_plus), lmd_c
 
-                    w = SLA.solve_triangular(L, b, lower=True)
-                    self.counter.incrementCholeskyLinearSolverCount()
+        def cgPhaseOne(self, x, b, sigma_L, sigma_U, lmd_c):
+            cg_max_iters = int(config['IRSNT']['CG_MAX_ITERS'])
+            max_iters = min(cg_max_iters, b.size * 2)
+            eps = float(config['IRSNT']['MATRIX_PSD_TOL'])
+            tol = float(config['IRSNT']['CG_STOP_TOL'])
 
-                    s = SLA.solve_triangular(L.T, w, lower=False)
-                    self.counter.incrementCholeskyLinearSolverCount()
+            normb = LA.norm(b)
 
-                    sn = LA.norm(s)
+            cg_x = np.ones(b.shape)
+            r = b - (self.problem.getHv(x, cg_x) + lmd_c * cg_x)
+            self.counter.incrementHessVCount()
 
-                    phi_lmd = self.getPhiLmd(sn, lmd_c, tau)
+            p = r
+            rs_old = r.dot(r)
 
-                    if abs(phi_lmd) < eps_exact*max(1, tau):
-                        break
+            for i in range(max_iters):
+                Ap = self.problem.getHv(x, p) + lmd_c * p
+                self.counter.incrementHessVCount()
+                pAp = p.dot(Ap)
 
-                    y = SLA.solve_triangular(L, -s, lower=True)
-                    self.counter.incrementCholeskyLinearSolverCount()
-                    yn = LA.norm(y)
+                if pAp <= -eps or (abs(pAp) <= eps and LA.norm(p) >= eps):
+                    d = 0
+                    psd_matrix = False
+                    return d, psd_matrix
 
-                    if phi_lmd < 0 and lmd_c > 0: # lmd_c in L
-                        # print('L', iter, lmd_lower, lmd_c, lmd_upper)
-                        c_hi = self.orderOneUpdate(sn, yn, lmd_c, tau)
-                        lmd_plus  = lmd_c + c_hi
-                        lmd_c = lmd_plus
+                alpha = rs_old / pAp
 
-                        if abs(c_hi) < eps_exact*max(1, lmd_upper):
-                            return s, lmd_c
+                cg_x += alpha * p
+                r -= alpha * Ap
 
-                    elif phi_lmd > 0 and lmd_c > 0: # lmd_c in G
-                        # print('G', iter, lmd_lower, lmd_c, lmd_upper)
-                        lmd_upper = min(lmd_upper, lmd_c)
+                rs_new = r.dot(r)
 
-                        c_hi = self.orderOneUpdate(sn, yn, lmd_c, tau)
-                        if do_order_two_update:
-                            s_plus = SLA.solve_triangular(L.T, y, lower=False)
-                            self.counter.incrementCholeskyLinearSolverCount()
-                            s_plus_n = LA.norm(s_plus)
-                            c_hi = max(c_hi, self.orderTwoUpdate(sn, yn, s_plus_n, lmd_c, tau))
-                        lmd_plus  = lmd_c + c_hi
-
-                        if lmd_plus > 0:
-                            try:
-                                B_plus  = A + lmd_plus * np.eye(self.problem.getSize())
-
-                                L = LA.cholesky(B_plus)
-                                self.counter.incrementCholeskyDecompCount()
-                                lmd_c = lmd_plus
-
-                            except LA.LinAlgError:
-                                lmd_plus_in_N = True
-
-                        if lmd_plus <= 0 or lmd_plus_in_N:
-                            if self.mode == 'tr':
-                                if is_pd and lmd_lower == 0 and phi_lmd >= 0:
-                                        lmd_c = 0
-                                        break
-                                else:
-                                    s, lmd_c, lmd_lower = self.adaNTupdateInN(A, s, lmd_lower, lmd_upper, lmd_plus, tau)
-                            if self.mode == 'cubic':
-                                s, lmd_c, lmd_lower = self.adaNTupdateInN(A, s, lmd_lower, lmd_upper, lmd_plus, tau)
-
-                except LA.LinAlgError: # lmd_c in N
-                    lmd_in_N = True
-
-                if lmd_in_N:
-                    if self.mode == 'tr':
-                        if lmd_lower == 0 and is_pd and phi_lmd >= 0:
-                            lmd_c = 0
-                            break
-                        else:
-                            s, lmd_c, lmd_lower = self.adaNTupdateInN(A, s, lmd_lower, lmd_upper, lmd_c, tau)
-
-                    if self.mode == 'cubic':
-                        s, lmd_c, lmd_lower = self.adaNTupdateInN(A, s, lmd_lower, lmd_upper, lmd_c, tau)
-
-                sn = LA.norm(s)
-                if np.isclose(sn, 0.) or np.isclose(lmd_c, 0.):
+                if rs_new ** 0.5 < tol * max(normb, 1.):
                     break
 
-                phi_lmd = self.getPhiLmd(sn, lmd_c, tau)
-                if abs(phi_lmd) < eps_exact*max(1, tau):
+                p = r + (rs_new/rs_old) * p
+                rs_old = rs_new
+
+            # print('cgPhaseOne', i, rs_old, lmd_c)
+            # if i == max_iters - 1:
+                # print('Warning: cg run fails in ' + str(max_iters) + ' steps.')
+
+            psd_matrix = True
+
+            return cg_x, psd_matrix
+
+        def cgPhaseTwo(self, x, b, sigma_L, sigma_U, lmd_c, cg_x):
+            print('start phase two...')
+            cg_max_iters = int(config['IRSNT']['CG_MAX_ITERS'])
+            max_iters = min(cg_max_iters, b.size * 2)
+            tol = float(config['IRSNT']['CG_STOP_TOL'])
+
+            tmp = b - (self.problem.getHv(x, cg_x) + lmd_c * cg_x)
+            self.counter.incrementHessVCount()
+            r = self.problem.getHv(x, tmp) + lmd_c * tmp
+            self.counter.incrementHessVCount()
+
+            Ab =self.problem.getHv(x, b) + lmd_c * b
+            self.counter.incrementHessVCount()
+            normAb = LA.norm(Ab)
+
+            p = r
+            rs_old = r.dot(r)
+
+            for i in range(max_iters):
+                Ap = self.problem.getHv(x, p) + lmd_c * p
+                self.counter.incrementHessVCount()
+                AAp = self.problem.getHv(x, Ap) + lmd_c * Ap
+                self.counter.incrementHessVCount()
+
+                pAAp = Ap.dot(Ap)
+
+                alpha = rs_old / pAAp
+
+                cg_x += alpha * p
+                r -= alpha * AAp
+
+                rs_new = r.dot(r)
+
+                # print(i, rs_new, normAb)
+                if rs_new ** 0.5 < tol * max(normAb, 1.):
                     break
 
-                # print(iter_, lmd_lower, lmd_c, lmd_upper, lmd_upper - lmd_lower)
-            return s, lmd_c
+                p = r + (rs_new/rs_old) * p
+                rs_old = rs_new
 
-        def adaNTupdateInN(self, A, s, lmd_lower, lmd_upper, lmd, tau):
-            theta_l = 0.01
-            theta_u = 0.9
-            eps_tol = 1e-6
-            lmd_lower = max(lmd_lower, lmd)
-            lmd_l = max((lmd_lower*lmd_upper)**0.5, lmd_lower + theta_l*(lmd_upper - lmd_lower))
-            lmd_u = max((lmd_lower*lmd_upper)**0.5, lmd_lower + theta_u*(lmd_upper - lmd_lower))
+            # print('phase II solution:', rs_old)
+            # print('cgPhaseTwo', i, rs_new)
+            return cg_x
 
-            # print(lmd_l, lmd_u, lmd_u - lmd_l)
-            lmd = np.random.uniform(lmd_l, lmd_u)
+        def binarySearch(self, x, b, sigma_L, sigma_U, lmd_L, lmd_U):
+            eps = float(config['IRSNT']['BINARY_SEARCH_TOL'])
+            # print('start binary search ...')
+            while True:
+                lmd_c = np.random.uniform(lmd_L, 0.5*(lmd_L + lmd_U))
+                d, _ = self.cgPhaseOne(x, b, sigma_L, sigma_U, lmd_c)
+                normd = LA.norm(d)
 
-            # if np.isclose(lmd_lower, lmd_upper):
-            # if abs(lmd_upper - lmd_lower) < eps_tol * max(1, lmd_upper):
-            #     lmd = lmd_lower
+                if sigma_L * normd - eps < lmd_c < sigma_U *normd + eps:
+                    return d, lmd_c
+                elif lmd_c > sigma_U * normd + eps:
+                    lmd_U = lmd_c
+                else:
+                    lmd_L = lmd_c
 
-            #     ew, ev = SLA.eigh(A, eigvals=(0, 0))
-            #     self.counter.incrementEigenValueCount()
-            #     self.counter.incrementEigenVectorCount()
+        # def adaNT_solver(self, A, b, tau):
 
-            #     d = ev[:, 0]
+        #     eps_exact = 1e-8
+        #     b += min(LA.norm(b), 1e-5) * self.getRandVecOnBall(len(A))
+        #     # b += 1e-5 * self.getRandVecOnBall(len(A))
+        #     s = b
+        #     max_iters = 200
+        #     do_order_two_update = False # TODO: check why second order update not working
 
-            #     if ew >= 0:
-            #         return s, lmd, lmd_lower
+        #     gl = min([A[i, i] - np.sum(np.abs(A[i, :])) + np.abs(A[i, i]) for i in range(len(A))])
+        #     gu = max([A[i, i] + np.sum(np.abs(A[i, :])) - np.abs(A[i, i]) for i in range(len(A))])
 
-            #     if self.mode == 'cubic':
-            #         tao_lower, tao_upper = self.findQuadRoot(1, 2*s.dot(d), s.dot(s) - lmd**2 / tau**2)
-            #     elif self.mode == 'tr':
-            #         # print('xxxx:', s, d, s.dot(s), tau**2, lmd, lmd_lower)
-            #         tao_lower, tao_upper = self.findQuadRoot(1, 2*s.dot(d), s.dot(s) - tau ** 2)
-            #     else:
-            #         raise NotImplementedError('order one update mode {} not implemented!'.format(self.mode))
+        #     A_ii_min = min(np.diagonal(A))
 
-            #     s += tao_upper * d
+        #     lmd_lower = max(0, -A_ii_min, gl)
+        #     lmd_upper = max(gu, lmd_lower + eps_exact)
 
-            return s, lmd, lmd_lower
+        #     lmd_c = np.random.uniform(lmd_lower, lmd_upper)
+
+        #     if self.mode == 'tr':
+        #         is_pd = isPDMatrix(A)
+        #         if is_pd:
+        #             L = LA.cholesky(A) # lower triangular factor
+        #             self.counter.incrementCholeskyDecompCount()
+
+        #             w = SLA.solve_triangular(L, b, lower=True)
+        #             self.counter.incrementCholeskyLinearSolverCount()
+
+        #             s = SLA.solve_triangular(L.T, w, lower=False)
+        #             self.counter.incrementCholeskyLinearSolverCount()
+
+        #             sn = LA.norm(s)
+
+        #             if sn <= tau:
+        #                 return s, 0
+
+        #     for iter_ in range(max_iters):
+
+        #         # print(iter, lmd_lower, lmd_c,  lmd_upper)
+
+        #         lmd_plus_in_N = False
+        #         lmd_in_N = False
+
+        #         B = A + lmd_c * np.eye(self.problem.getSize())
+
+        #         try: # if this succeeds, then lmd_c is in L or G
+        #             L = LA.cholesky(B) # lower triangular factor
+        #             self.counter.incrementCholeskyDecompCount()
+
+        #             w = SLA.solve_triangular(L, b, lower=True)
+        #             self.counter.incrementCholeskyLinearSolverCount()
+
+        #             s = SLA.solve_triangular(L.T, w, lower=False)
+        #             self.counter.incrementCholeskyLinearSolverCount()
+
+        #             sn = LA.norm(s)
+
+        #             phi_lmd = self.getPhiLmd(sn, lmd_c, tau)
+
+        #             if abs(phi_lmd) < eps_exact*max(1, tau):
+        #                 break
+
+        #             y = SLA.solve_triangular(L, -s, lower=True)
+        #             self.counter.incrementCholeskyLinearSolverCount()
+        #             yn = LA.norm(y)
+
+        #             if phi_lmd < 0 and lmd_c > 0: # lmd_c in L
+        #                 # print('L', iter, lmd_lower, lmd_c, lmd_upper)
+        #                 c_hi = self.orderOneUpdate(sn, yn, lmd_c, tau)
+        #                 lmd_plus  = lmd_c + c_hi
+        #                 lmd_c = lmd_plus
+
+        #                 if abs(c_hi) < eps_exact*max(1, lmd_upper):
+        #                     return s, lmd_c
+
+        #             elif phi_lmd > 0 and lmd_c > 0: # lmd_c in G
+        #                 # print('G', iter, lmd_lower, lmd_c, lmd_upper)
+        #                 lmd_upper = min(lmd_upper, lmd_c)
+
+        #                 c_hi = self.orderOneUpdate(sn, yn, lmd_c, tau)
+        #                 if do_order_two_update:
+        #                     s_plus = SLA.solve_triangular(L.T, y, lower=False)
+        #                     self.counter.incrementCholeskyLinearSolverCount()
+        #                     s_plus_n = LA.norm(s_plus)
+        #                     c_hi = max(c_hi, self.orderTwoUpdate(sn, yn, s_plus_n, lmd_c, tau))
+        #                 lmd_plus  = lmd_c + c_hi
+
+        #                 if lmd_plus > 0:
+        #                     try:
+        #                         B_plus  = A + lmd_plus * np.eye(self.problem.getSize())
+
+        #                         L = LA.cholesky(B_plus)
+        #                         self.counter.incrementCholeskyDecompCount()
+        #                         lmd_c = lmd_plus
+
+        #                     except LA.LinAlgError:
+        #                         lmd_plus_in_N = True
+
+        #                 if lmd_plus <= 0 or lmd_plus_in_N:
+        #                     if self.mode == 'tr':
+        #                         if is_pd and lmd_lower == 0 and phi_lmd >= 0:
+        #                                 lmd_c = 0
+        #                                 break
+        #                         else:
+        #                             s, lmd_c, lmd_lower = self.adaNTupdateInN(A, s, lmd_lower, lmd_upper, lmd_plus, tau)
+        #                     if self.mode == 'cubic':
+        #                         s, lmd_c, lmd_lower = self.adaNTupdateInN(A, s, lmd_lower, lmd_upper, lmd_plus, tau)
+
+        #         except LA.LinAlgError: # lmd_c in N
+        #             lmd_in_N = True
+
+        #         if lmd_in_N:
+        #             if self.mode == 'tr':
+        #                 if lmd_lower == 0 and is_pd and phi_lmd >= 0:
+        #                     lmd_c = 0
+        #                     break
+        #                 else:
+        #                     s, lmd_c, lmd_lower = self.adaNTupdateInN(A, s, lmd_lower, lmd_upper, lmd_c, tau)
+
+        #             if self.mode == 'cubic':
+        #                 s, lmd_c, lmd_lower = self.adaNTupdateInN(A, s, lmd_lower, lmd_upper, lmd_c, tau)
+
+        #         sn = LA.norm(s)
+        #         if np.isclose(sn, 0.) or np.isclose(lmd_c, 0.):
+        #             break
+
+        #         phi_lmd = self.getPhiLmd(sn, lmd_c, tau)
+        #         if abs(phi_lmd) < eps_exact*max(1, tau):
+        #             break
+
+        #         # print(iter_, lmd_lower, lmd_c, lmd_upper, lmd_upper - lmd_lower)
+        #     return s, lmd_c
+
+        # def adaNTupdateInN(self, A, s, lmd_lower, lmd_upper, lmd, tau):
+        #     theta_l = 0.01
+        #     theta_u = 0.9
+        #     eps_tol = 1e-6
+        #     lmd_lower = max(lmd_lower, lmd)
+        #     lmd_l = max((lmd_lower*lmd_upper)**0.5, lmd_lower + theta_l*(lmd_upper - lmd_lower))
+        #     lmd_u = max((lmd_lower*lmd_upper)**0.5, lmd_lower + theta_u*(lmd_upper - lmd_lower))
+
+        #     # print(lmd_l, lmd_u, lmd_u - lmd_l)
+        #     lmd = np.random.uniform(lmd_l, lmd_u)
+
+        #     # if np.isclose(lmd_lower, lmd_upper):
+        #     # if abs(lmd_upper - lmd_lower) < eps_tol * max(1, lmd_upper):
+        #     #     lmd = lmd_lower
+
+        #     #     ew, ev = SLA.eigh(A, eigvals=(0, 0))
+        #     #     self.counter.incrementEigenValueCount()
+        #     #     self.counter.incrementEigenVectorCount()
+
+        #     #     d = ev[:, 0]
+
+        #     #     if ew >= 0:
+        #     #         return s, lmd, lmd_lower
+
+        #     #     if self.mode == 'cubic':
+        #     #         tao_lower, tao_upper = self.findQuadRoot(1, 2*s.dot(d), s.dot(s) - lmd**2 / tau**2)
+        #     #     elif self.mode == 'tr':
+        #     #         # print('xxxx:', s, d, s.dot(s), tau**2, lmd, lmd_lower)
+        #     #         tao_lower, tao_upper = self.findQuadRoot(1, 2*s.dot(d), s.dot(s) - tau ** 2)
+        #     #     else:
+        #     #         raise NotImplementedError('order one update mode {} not implemented!'.format(self.mode))
+
+        #     #     s += tao_upper * d
+
+        #     return s, lmd, lmd_lower
 
 
 

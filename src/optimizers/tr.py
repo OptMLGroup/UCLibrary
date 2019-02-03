@@ -26,7 +26,8 @@ config.read('config.ini')
 
 class TrustRegion(Optimizer):
     def __init__(self, problem, mode='exact'):
-        if mode not in ['exact', 'cg', 'gltr', 'inexact', 'cauchy', 'dogleg', 'adaNT']:
+        # if mode not in ['exact', 'cg', 'gltr', 'inexact', 'cauchy', 'dogleg', 'adaNT']:
+        if mode not in ['exact', 'cg', 'gltr', 'inexact', 'cauchy', 'dogleg']:
             raise ValueError("Invalid mode: {}".format(mode))
         params = dict(mode=mode)
         super(TrustRegion, self).__init__(problem, params)
@@ -106,15 +107,16 @@ class TrustRegion(Optimizer):
         if mode == 'gltr':
             p, lmd = self.subroutine.gltrSolver(self.x, grad, radius)
 
-        if mode == 'adaNT':
-            hess = self.problem.getHessian(self.x)
-            self.counter.incrementHessCount()
-            p, lmd = self.subroutine.adaNT_solver(hess, -grad, radius)
+        # if mode == 'adaNT':
+            # hess = self.problem.getHessian(self.x)
+            # self.counter.incrementHessCount()
+            # p, lmd = self.subroutine.adaNT_solver(hess, -grad, radius)
 
         return p, lmd
 
     def subModelReduction(self, p, grad, lmd, radius):
         tmp = -grad.dot(p) - 0.5 * p.dot(self.problem.getHv(self.x, p))
+        self.counter.incrementHessVCount()
 
         if tmp <= 0:
             print(self.problem.getHessian(self.x), grad)

@@ -7,7 +7,7 @@
 #   @Create date:   2018-07-01 12:31:00
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2019-02-03 12:15:16
+#   @Last Modified time:    2019-02-03 16:39:23
 
 #   @Description:
 #   @Example:
@@ -72,15 +72,19 @@ def main(func_name='ROSENBR'):
         optim = optimizers.Newton(problem, lr=False, damping='min_eig', mode=mode, linesearch='strong_wolfe')
         run(problem, optim, demo)
 
-    for mode in ['exact', 'krylov', 'cauchy', 'adaNT']:
+    for mode in ['exact', 'krylov', 'cauchy']:
         problem.setInitialPoint()
         optim = optimizers.Cubic(problem, lr=False, mode=mode, adaptive=True)
         run(problem, optim, demo)
 
-    for mode in ['exact', 'cauchy', 'adaNT']:
+    for mode in ['exact', 'cauchy']:
         problem.setInitialPoint()
         optim = optimizers.TrustRegion(problem, mode=mode)
         run(problem, optim, demo)
+
+    problem.setInitialPoint()
+    optim = optimizers.Irsnt(problem)
+    run(problem, optim, demo)
 
     demo.savePlot()
     # demo.showPlot()

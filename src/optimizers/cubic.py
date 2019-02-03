@@ -7,7 +7,7 @@
 #   @Create date:   2018-09-23 21:50:20
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2018-11-15 13:58:56
+#   @Last Modified time:    2019-02-03 16:43:27
 
 #   @Description:
 #   @Example:
@@ -29,7 +29,8 @@ class Cubic(Optimizer):
             raise ValueError("Invalid step-size: {}".format(lr))
         if not isinstance(adaptive, bool):
             raise ValueError("Invalid adaptive: {}".format(adaptive))
-        if mode not in ['exact', 'cg', 'krylov', 'inexact', 'cauchy', 'adaNT']:
+        # if mode not in ['exact', 'cg', 'krylov', 'inexact', 'cauchy', 'adaNT']:
+        if mode not in ['exact', 'cg', 'krylov', 'inexact', 'cauchy']:
             raise ValueError("Invalid mode: {}".format(mode))
 
         if adaptive:
@@ -79,6 +80,8 @@ class Cubic(Optimizer):
             p, _ = self.subRoutineStep(grad, sigma)
 
             f = self.problem.getFn(self.x + p)
+            self.counter.incrementFnCount()
+
             tmp = self.subModelReduction(p, grad, sigma)
 
             rho = (f_old - f)/tmp
@@ -127,15 +130,16 @@ class Cubic(Optimizer):
         if mode == 'krylov':
             p, lmd = self.subroutine.lanczosSolver(self.x, -grad, sigma)
 
-        if mode == 'adaNT':
-            hess = self.problem.getHessian(self.x)
-            self.counter.incrementHessCount()
-            p, lmd = self.subroutine.adaNT_solver(hess, -grad, sigma)
+        # if mode == 'adaNT':
+            # hess = self.problem.getHessian(self.x)
+            # self.counter.incrementHessCount()
+            # p, lmd = self.subroutine.adaNT_solver(hess, -grad, sigma)
 
         return p, lmd
 
     def subModelReduction(self, p, grad, sigma):
         tmp = grad.dot(p) + 0.5 * p.dot(self.problem.getHv(self.x, p)) + 1/3. *sigma * LA.norm(p) ** 3
+        self.counter.incrementHessVCount()
         # assert tmp <=0, 'cubic submodel does not reduce.!!'
 
         return -tmp

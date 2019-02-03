@@ -7,7 +7,7 @@
 #   @Create date:   2018-08-17 23:27:44
 
 #   @Last modified by:  Xi He
-#   @Last Modified time:    2018-10-05 14:17:08
+#   @Last Modified time:    2019-02-03 14:35:11
 
 #   @Description:
 #   @Example:
@@ -19,3 +19,4 @@ from .gd import GD
 from .newton import Newton
 from .cubic import Cubic
 from .tr import TrustRegion
+from .irsnt import Irsnt

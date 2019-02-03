@@ -25,7 +25,7 @@ from copy import deepcopy
 required = object()
 
 class Optimizer(object):
-    def __init__(self, problem, params):
+    def __init__(self, problem, params=None):
         self.problem  = problem
         self.params = params
         self.size = self.problem.getSize()
@@ -51,15 +51,16 @@ class Optimizer(object):
             trace_x = deepcopy(self.x).reshape(1, 2)
             self.trace.append(trace_x)
 
-    def getOptimName(self, base, features):
-        for feature in features:
-            if self.params[feature]:
-                if isinstance(self.params[feature], bool):
-                    if self.params[feature] is True:
-                        base.append(feature)
-                else:
-                        base.append(str(self.params[feature]))
-                        # base.append(feature)
+    def getOptimName(self, base, features=None):
+        if features:
+            for feature in features:
+                if self.params[feature]:
+                    if isinstance(self.params[feature], bool):
+                        if self.params[feature] is True:
+                            base.append(feature)
+                    else:
+                            base.append(str(self.params[feature]))
+                            # base.append(feature)
         return '-'.join(base)
 
     def terminationCondition(self, mode = 'first_order', tol = 1e-6):
